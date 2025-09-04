@@ -32,10 +32,10 @@
 #define UDP_FORWARD_PORT 11999
 #define UDP_LISTEN_PORT 11999
 
-// 数据包结构体定义
+// 数据包结构体声明
 struct PacketData;
 
-// PacketData内存池
+// PacketData内存池声明
 class PacketDataPool {
 private:
     static constexpr size_t MAX_POOL_SIZE = 1000;
@@ -48,66 +48,18 @@ private:
     static std::atomic<size_t> reuse_count;
 
 public:
-    static std::shared_ptr<PacketData> acquire() {
-        std::lock_guard<std::mutex> lock(pool_mutex);
-        if (!packet_pool.empty() && pool_size.load(std::memory_order_relaxed) > 0) {
-            auto packet = packet_pool.top();
-            packet_pool.pop();
-            pool_size.fetch_sub(1, std::memory_order_relaxed);
-            // 重置对象状态
-            packet->len = 0;
-            if (packet->data) {
-                packet->data->clear();
-            } else {
-                packet->data = std::make_shared<std::vector<uint8_t>>();
-            }
-            reuse_count.fetch_add(1, std::memory_order_relaxed);
-            return packet;
-        }
-        alloc_count.fetch_add(1, std::memory_order_relaxed);
-        return std::make_shared<PacketData>();
-    }
-
-    static void release(std::shared_ptr<PacketData> packet) {
-        if (!packet) return;
-
-        // 重置对象状态
-        packet->len = 0;
-        if (packet->data) {
-            packet->data->clear();
-        }
-
-        std::lock_guard<std::mutex> lock(pool_mutex);
-        if (pool_size.load(std::memory_order_relaxed) < MAX_POOL_SIZE) {
-            packet_pool.push(packet);
-            pool_size.fetch_add(1, std::memory_order_relaxed);
-        }
-        // 如果池已满，shared_ptr会自动释放内存
-    }
+    static std::shared_ptr<PacketData> acquire();
+    static void release(std::shared_ptr<PacketData> packet);
     
     // 获取当前池大小
-    static size_t get_pool_size() {
-        return pool_size.load(std::memory_order_relaxed);
-    }
+    static size_t get_pool_size();
     
     // 获取统计信息
-    static size_t get_alloc_count() {
-        return alloc_count.load(std::memory_order_relaxed);
-    }
-    
-    static size_t get_reuse_count() {
-        return reuse_count.load(std::memory_order_relaxed);
-    }
+    static size_t get_alloc_count();
+    static size_t get_reuse_count();
     
     // 打印统计信息
-    static void print_stats() {
-        size_t alloc = alloc_count.load(std::memory_order_relaxed);
-        size_t reuse = reuse_count.load(std::memory_order_relaxed);
-        size_t pool = pool_size.load(std::memory_order_relaxed);
-        
-        printf("PacketDataPool Stats - Allocated: %zu, Reused: %zu, Pool Size: %zu\n", 
-               alloc, reuse, pool);
-    }
+    static void print_stats();
 };
 
 // 数据包结构体定义
@@ -180,6 +132,68 @@ struct PacketData : public std::enable_shared_from_this<PacketData> {
         // 因为shared_ptr可能仍被其他地方引用
     }
 };
+
+// PacketDataPool的实现
+std::shared_ptr<PacketData> PacketDataPool::acquire() {
+    std::lock_guard<std::mutex> lock(pool_mutex);
+    if (!packet_pool.empty() && pool_size.load(std::memory_order_relaxed) > 0) {
+        auto packet = packet_pool.top();
+        packet_pool.pop();
+        pool_size.fetch_sub(1, std::memory_order_relaxed);
+        // 重置对象状态
+        packet->len = 0;
+        if (packet->data) {
+            packet->data->clear();
+        } else {
+            packet->data = std::make_shared<std::vector<uint8_t>>();
+        }
+        reuse_count.fetch_add(1, std::memory_order_relaxed);
+        return packet;
+    }
+    alloc_count.fetch_add(1, std::memory_order_relaxed);
+    return std::make_shared<PacketData>();
+}
+
+void PacketDataPool::release(std::shared_ptr<PacketData> packet) {
+    if (!packet) return;
+
+    // 重置对象状态
+    packet->len = 0;
+    if (packet->data) {
+        packet->data->clear();
+    }
+
+    std::lock_guard<std::mutex> lock(pool_mutex);
+    if (pool_size.load(std::memory_order_relaxed) < MAX_POOL_SIZE) {
+        packet_pool.push(packet);
+        pool_size.fetch_add(1, std::memory_order_relaxed);
+    }
+    // 如果池已满，shared_ptr会自动释放内存
+}
+
+// 获取当前池大小
+size_t PacketDataPool::get_pool_size() {
+    return pool_size.load(std::memory_order_relaxed);
+}
+
+// 获取统计信息
+size_t PacketDataPool::get_alloc_count() {
+    return alloc_count.load(std::memory_order_relaxed);
+}
+
+size_t PacketDataPool::get_reuse_count() {
+    return reuse_count.load(std::memory_order_relaxed);
+}
+
+// 打印统计信息
+void PacketDataPool::print_stats() {
+    size_t alloc = alloc_count.load(std::memory_order_relaxed);
+    size_t reuse = reuse_count.load(std::memory_order_relaxed);
+    size_t pool = pool_size.load(std::memory_order_relaxed);
+    
+    printf("PacketDataPool Stats - Allocated: %zu, Reused: %zu, Pool Size: %zu\n", 
+           alloc, reuse, pool);
+}
 
 // 静态成员定义
 std::stack<std::shared_ptr<PacketData>> PacketDataPool::packet_pool;
