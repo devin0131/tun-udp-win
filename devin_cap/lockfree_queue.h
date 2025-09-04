@@ -136,6 +136,33 @@ public:
         }
     }
 
+    // 零拷贝入队 - 直接使用已有的shared_ptr
+    void enqueue_shared(std::shared_ptr<T>&& item) {
+        LockFreeNode<T>* node = acquire_node();
+        node->data = std::move(item);
+
+        std::atomic_thread_fence(std::memory_order_release);
+
+        LockFreeNode<T>* prev = tail.load(std::memory_order_relaxed);
+        while (true) {
+            LockFreeNode<T>* next = prev->next.load(std::memory_order_acquire);
+            if (prev == tail.load(std::memory_order_relaxed)) {
+                if (next == nullptr) {
+                    if (prev->next.compare_exchange_weak(next, node, std::memory_order_acq_rel)) {
+                        tail.compare_exchange_weak(prev, node, std::memory_order_acq_rel);
+                        return;
+                    }
+                }
+                else {
+                    tail.compare_exchange_weak(prev, next, std::memory_order_acq_rel);
+                }
+            }
+            else {
+                prev = tail.load(std::memory_order_relaxed);
+            }
+        }
+    }
+
     // 出队
     bool dequeue(T& item) {
         LockFreeNode<T>* old_head = head.load(std::memory_order_relaxed);

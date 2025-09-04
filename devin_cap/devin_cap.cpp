@@ -63,6 +63,22 @@ struct PacketData {
         return *this;
     }
     
+    // 零拷贝工厂方法 - 从现有数据创建shared_ptr
+    static std::shared_ptr<PacketData> create_shared(const uint8_t* packet_data, int packet_len) {
+        auto packet = std::make_shared<PacketData>();
+        packet->len = packet_len;
+        packet->data = std::make_shared<std::vector<uint8_t>>(packet_data, packet_data + packet_len);
+        return packet;
+    }
+    
+    // 零拷贝工厂方法 - 从已有的vector创建shared_ptr
+    static std::shared_ptr<PacketData> create_shared(std::shared_ptr<std::vector<uint8_t>> packet_data) {
+        auto packet = std::make_shared<PacketData>();
+        packet->data = packet_data;
+        packet->len = packet_data->size();
+        return packet;
+    }
+    
     // 拷贝构造函数
     PacketData(const PacketData& other) 
         : data(std::make_shared<std::vector<uint8_t>>(*other.data)), len(other.len) {}
@@ -399,9 +415,9 @@ void packet_handler(u_char* user, const struct pcap_pkthdr* pkt_header, const u_
 
         // 使用无锁队列优化，将数据包放入队列中，由专门的线程处理发送
         if (g_packet_queue) {
-            // 创建PacketData对象并入队
-            PacketData packet_data((const uint8_t*)ip_packet, ip_packet_len);
-            g_packet_queue->enqueue(std::move(packet_data));
+            // 使用零拷贝方法创建PacketData对象并入队
+            auto packet_data = PacketData::create_shared((const uint8_t*)ip_packet, ip_packet_len);
+            g_packet_queue->enqueue_shared(std::move(packet_data));
         }
     }
     // --- 功能 1 结束 ---
@@ -520,9 +536,9 @@ unsigned __stdcall udp_thread_function(void* param) {
 
         // 使用无锁队列优化，将收到的数据包放入队列中，由专门的线程处理发送
         if (g_udp_packet_queue) {
-            // 创建PacketData对象并入队
-            PacketData packet_data((const uint8_t*)recv_buffer, bytes_received);
-            g_udp_packet_queue->enqueue(std::move(packet_data));
+            // 使用零拷贝方法创建PacketData对象并入队
+            auto packet_data = PacketData::create_shared((const uint8_t*)recv_buffer, bytes_received);
+            g_udp_packet_queue->enqueue_shared(std::move(packet_data));
         }
     }
 
