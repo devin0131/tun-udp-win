@@ -21,6 +21,7 @@
 #include <mutex>
 #include "wintun.h"
 #include "lockfree_queue.h"
+#include "packet_send_thread.h"
 
 #pragma comment(lib, "wpcap.lib") // Link with Npcap library
 #pragma comment(lib, "ws2_32.lib") // Link with Windows Sockets library
@@ -210,6 +211,10 @@ SOCKET g_forward_socket = INVALID_SOCKET; // 用于UDP转发的Socket
 WINTUN_SESSION_HANDLE g_session = NULL;
 WINTUN_ADAPTER_HANDLE g_tun_adpter;
 
+// 线程句柄
+HANDLE capture_forward_thread_handle = nullptr; // 捕获转发线程句柄
+HANDLE udp_inject_thread_handle = nullptr; // UDP注入线程句柄
+
 // 无锁队列用于优化数据包处理
 LockFreeQueue<PacketData>* g_packet_queue = nullptr;  // 用于存储从网络捕获的数据包
 LockFreeQueue<PacketData>* g_udp_packet_queue = nullptr;  // 用于存储从UDP接收的数据包
@@ -221,7 +226,8 @@ int initUdpSocket(bool& retFlag);
 void print_packet_info(const struct pcap_pkthdr* header, const u_char* packet);
 void parse_udp_packet(const u_char* packet, int packet_len);
 unsigned __stdcall udp_thread_function(void* param); // UDP处理线程函数
-unsigned __stdcall packet_send_thread_function(void* param); // 数据包发送线程函数
+unsigned __stdcall capture_forward_thread_function(void* param); // 捕获转发线程函数
+unsigned __stdcall udp_inject_thread_function(void* param); // UDP注入线程函数
 void send_packet_via_npcap(const u_char* packet_data, int packet_len);
 void send_packet_via_tun(const u_char* ip_packet, int ip_len);
 void wintun_shutdown(void);
@@ -407,14 +413,29 @@ int main() {
         return -1;
     }
 
-    // 7. 创建数据包发送线程
-    HANDLE packet_send_thread_handle = (HANDLE)_beginthreadex(nullptr, 0, packet_send_thread_function, nullptr, 0, nullptr);
-    if (packet_send_thread_handle == nullptr) {
-        fprintf(stderr, "Error creating packet send thread.\n");
+    // 7. 创建数据包发送线程（捕获转发线程）
+    HANDLE capture_forward_thread_handle = (HANDLE)_beginthreadex(nullptr, 0, capture_forward_thread_function, nullptr, 0, nullptr);
+    if (capture_forward_thread_handle == nullptr) {
+        fprintf(stderr, "Error creating capture forward thread.\n");
         g_running = false;
         pcap_breakloop(handle); // 尝试中断主循环
         // 等待可能已创建的线程
         if (g_udp_thread_handle) WaitForSingleObject(g_udp_thread_handle, INFINITE);
+        pcap_close(handle);
+        pcap_freealldevs(all_devices);
+        WSACleanup();
+        return -1;
+    }
+    
+    // 8. 创建UDP注入线程
+    HANDLE udp_inject_thread_handle = (HANDLE)_beginthreadex(nullptr, 0, udp_inject_thread_function, nullptr, 0, nullptr);
+    if (udp_inject_thread_handle == nullptr) {
+        fprintf(stderr, "Error creating UDP inject thread.\n");
+        g_running = false;
+        pcap_breakloop(handle); // 尝试中断主循环
+        // 等待可能已创建的线程
+        if (g_udp_thread_handle) WaitForSingleObject(g_udp_thread_handle, INFINITE);
+        if (capture_forward_thread_handle) WaitForSingleObject(capture_forward_thread_handle, INFINITE);
         pcap_close(handle);
         pcap_freealldevs(all_devices);
         WSACleanup();
@@ -445,6 +466,18 @@ int main() {
     if (g_udp_thread_handle) {
         WaitForSingleObject(g_udp_thread_handle, 5000); // 等待最多5秒
         CloseHandle(g_udp_thread_handle);
+    }
+    
+    // 等待捕获转发线程结束
+    if (capture_forward_thread_handle) {
+        WaitForSingleObject(capture_forward_thread_handle, 5000); // 等待最多5秒
+        CloseHandle(capture_forward_thread_handle);
+    }
+    
+    // 等待UDP注入线程结束
+    if (udp_inject_thread_handle) {
+        WaitForSingleObject(udp_inject_thread_handle, 5000); // 等待最多5秒
+        CloseHandle(udp_inject_thread_handle);
     }
 
     pcap_close(handle);
@@ -658,46 +691,7 @@ unsigned __stdcall udp_thread_function(void* param) {
 }
 // --- 功能 2 结束 ---
 
-// 数据包发送线程函数
-unsigned __stdcall packet_send_thread_function(void* param) {
-    UNREFERENCED_PARAMETER(param);
 
-    while (g_running) {
-        // 处理从网络捕获并需要转发的UDP数据包
-        PacketData packet_data;
-        if (g_packet_queue && g_packet_queue->dequeue(packet_data)) {
-            // 发送数据包
-            SOCKET udp_socket = g_forward_socket;
-            sockaddr_in dest_addr;
-            dest_addr.sin_family = AF_INET;
-            dest_addr.sin_port = htons(UDP_FORWARD_PORT);
-            inet_pton(AF_INET, UDP_FORWARD_IP, &dest_addr.sin_addr); // Windows版本
-
-            int sent_bytes = sendto(udp_socket, (const char*)packet_data.data->data(), (int)packet_data.data->size(), 0,
-                (sockaddr*)&dest_addr, sizeof(dest_addr));
-            if (sent_bytes == SOCKET_ERROR) {
-                // fprintf(stderr, "UDP send failed: %d\n", WSAGetLastError());
-                // 可选：打印错误，但不中断主流程
-            }
-        }
-        // 处理从UDP接收并需要注入网络的数据包
-        else if (g_udp_packet_queue && g_udp_packet_queue->dequeue(packet_data)) {
-            // --- 将收到的原始数据通过 Npcap/Wintun 发送回网络 ---
-            if (g_capture_handle && packet_data.data && packet_data.data->size() > 0) {
-                // 直接发送收到的原始字节流，假设它是一个完整的以太网帧
-                wintun_send(packet_data.data->data(), packet_data.data->size());
-            }
-        }
-        else {
-            // 队列为空，短暂休眠以避免忙等待
-            Sleep(1);
-        }
-    }
-
-    printf("Packet Send Thread: Exiting.\n");
-    _endthreadex(0);
-    return 0;
-}
 
 int wintun_init(const WCHAR* adapter_name, const WCHAR* tunnel_name,
     const WCHAR* ip_str, int netmask_cidr)
