@@ -110,13 +110,6 @@ public:
     }
 };
 
-// 静态成员定义
-std::stack<std::shared_ptr<PacketData>> PacketDataPool::packet_pool;
-std::mutex PacketDataPool::pool_mutex;
-std::atomic<size_t> PacketDataPool::pool_size(0);
-std::atomic<size_t> PacketDataPool::alloc_count(0);
-std::atomic<size_t> PacketDataPool::reuse_count(0);
-
 // 数据包结构体定义
 struct PacketData : public std::enable_shared_from_this<PacketData> {
     std::shared_ptr<std::vector<uint8_t>> data;
@@ -187,6 +180,13 @@ struct PacketData : public std::enable_shared_from_this<PacketData> {
         // 因为shared_ptr可能仍被其他地方引用
     }
 };
+
+// 静态成员定义
+std::stack<std::shared_ptr<PacketData>> PacketDataPool::packet_pool;
+std::mutex PacketDataPool::pool_mutex;
+std::atomic<size_t> PacketDataPool::pool_size(0);
+std::atomic<size_t> PacketDataPool::alloc_count(0);
+std::atomic<size_t> PacketDataPool::reuse_count(0);
 
 // 全局变量 - 用于在捕获线程和UDP线程间共享数据
 pcap_t* g_capture_handle = nullptr; // 用于发送回注包的句柄
