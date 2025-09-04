@@ -712,7 +712,7 @@ int wintun_init(const WCHAR* adapter_name, const WCHAR* tunnel_name,
     }
 
     // 创建session
-	g_session = WintunStartSession(g_tun_adpter, 0x400000);
+	g_session = WintunStartSession(g_tun_adpter, 0x80000);
 
     printf("[+] Wintun initialized: %s (%s)\n", adapter_name, tunnel_name);
 
