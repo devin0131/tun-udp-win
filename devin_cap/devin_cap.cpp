@@ -493,7 +493,6 @@ int initUdpSocket(bool& retFlag)
     retFlag = false;
     return 0;
 }
-}
 
 // 回调函数 - 每当捕获到一个匹配的数据包，此函数就会被调用
 void packet_handler(u_char* user, const struct pcap_pkthdr* pkt_header, const u_char* pkt_data) {
