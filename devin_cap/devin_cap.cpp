@@ -18,6 +18,7 @@
 #include <memory>
 #include <stack>
 #include <atomic>
+#include <mutex>
 #include "wintun.h"
 #include "lockfree_queue.h"
 
@@ -32,7 +33,92 @@
 #define UDP_LISTEN_PORT 11999
 
 // 数据包结构体定义
-struct PacketData {
+struct PacketData;
+
+// PacketData内存池
+class PacketDataPool {
+private:
+    static constexpr size_t MAX_POOL_SIZE = 1000;
+    static std::stack<std::shared_ptr<PacketData>> packet_pool;
+    static std::mutex pool_mutex;
+    static std::atomic<size_t> pool_size;
+    
+    // 统计信息
+    static std::atomic<size_t> alloc_count;
+    static std::atomic<size_t> reuse_count;
+
+public:
+    static std::shared_ptr<PacketData> acquire() {
+        std::lock_guard<std::mutex> lock(pool_mutex);
+        if (!packet_pool.empty() && pool_size.load(std::memory_order_relaxed) > 0) {
+            auto packet = packet_pool.top();
+            packet_pool.pop();
+            pool_size.fetch_sub(1, std::memory_order_relaxed);
+            // 重置对象状态
+            packet->len = 0;
+            if (packet->data) {
+                packet->data->clear();
+            } else {
+                packet->data = std::make_shared<std::vector<uint8_t>>();
+            }
+            reuse_count.fetch_add(1, std::memory_order_relaxed);
+            return packet;
+        }
+        alloc_count.fetch_add(1, std::memory_order_relaxed);
+        return std::make_shared<PacketData>();
+    }
+
+    static void release(std::shared_ptr<PacketData> packet) {
+        if (!packet) return;
+
+        // 重置对象状态
+        packet->len = 0;
+        if (packet->data) {
+            packet->data->clear();
+        }
+
+        std::lock_guard<std::mutex> lock(pool_mutex);
+        if (pool_size.load(std::memory_order_relaxed) < MAX_POOL_SIZE) {
+            packet_pool.push(packet);
+            pool_size.fetch_add(1, std::memory_order_relaxed);
+        }
+        // 如果池已满，shared_ptr会自动释放内存
+    }
+    
+    // 获取当前池大小
+    static size_t get_pool_size() {
+        return pool_size.load(std::memory_order_relaxed);
+    }
+    
+    // 获取统计信息
+    static size_t get_alloc_count() {
+        return alloc_count.load(std::memory_order_relaxed);
+    }
+    
+    static size_t get_reuse_count() {
+        return reuse_count.load(std::memory_order_relaxed);
+    }
+    
+    // 打印统计信息
+    static void print_stats() {
+        size_t alloc = alloc_count.load(std::memory_order_relaxed);
+        size_t reuse = reuse_count.load(std::memory_order_relaxed);
+        size_t pool = pool_size.load(std::memory_order_relaxed);
+        
+        printf("PacketDataPool Stats - Allocated: %zu, Reused: %zu, Pool Size: %zu\n", 
+               alloc, reuse, pool);
+    }
+};
+
+// 静态成员定义
+std::stack<std::shared_ptr<PacketData>> PacketDataPool::packet_pool;
+std::mutex PacketDataPool::pool_mutex;
+std::atomic<size_t> PacketDataPool::pool_size(0);
+std::atomic<size_t> PacketDataPool::alloc_count(0);
+std::atomic<size_t> PacketDataPool::reuse_count(0);
+
+// 数据包结构体定义
+struct PacketData : public std::enable_shared_from_this<PacketData> {
     std::shared_ptr<std::vector<uint8_t>> data;
     int len;
     
@@ -63,17 +149,20 @@ struct PacketData {
         return *this;
     }
     
-    // 零拷贝工厂方法 - 从现有数据创建shared_ptr
+    // 零拷贝工厂方法 - 从现有数据创建shared_ptr（使用内存池）
     static std::shared_ptr<PacketData> create_shared(const uint8_t* packet_data, int packet_len) {
-        auto packet = std::make_shared<PacketData>();
+        auto packet = PacketDataPool::acquire();
         packet->len = packet_len;
-        packet->data = std::make_shared<std::vector<uint8_t>>(packet_data, packet_data + packet_len);
+        if (!packet->data) {
+            packet->data = std::make_shared<std::vector<uint8_t>>();
+        }
+        packet->data->assign(packet_data, packet_data + packet_len);
         return packet;
     }
     
-    // 零拷贝工厂方法 - 从已有的vector创建shared_ptr
+    // 零拷贝工厂方法 - 从已有的vector创建shared_ptr（使用内存池）
     static std::shared_ptr<PacketData> create_shared(std::shared_ptr<std::vector<uint8_t>> packet_data) {
-        auto packet = std::make_shared<PacketData>();
+        auto packet = PacketDataPool::acquire();
         packet->data = packet_data;
         packet->len = packet_data->size();
         return packet;
@@ -90,6 +179,12 @@ struct PacketData {
             len = other.len;
         }
         return *this;
+    }
+    
+    // 析构时将对象返回到内存池
+    ~PacketData() {
+        // 注意：不能在这里直接调用PacketDataPool::release，
+        // 因为shared_ptr可能仍被其他地方引用
     }
 };
 
@@ -382,7 +477,8 @@ int initUdpSocket(bool& retFlag)
 
     printf("Forward socket bound to local port %d\n", UDP_LISTEN_PORT);
     retFlag = false;
-    return {};
+    return 0;
+}
 }
 
 // 回调函数 - 每当捕获到一个匹配的数据包，此函数就会被调用
@@ -639,11 +735,6 @@ int wintun_send(const uint8_t* packet, size_t len)
     memcpy(frame, packet, len);
 
     WintunSendPacket(g_session, frame);
-
-  /*  if (!) {
-        fprintf(stderr, "[-] WintunSendPacket failed: %lu\n", GetLastError());
-        return -1;
-    }*/
     return 0;
 }
 
@@ -653,13 +744,11 @@ void wintun_shutdown(void)
         WintunEndSession(g_session);
         g_session = NULL;
     }
-cleanupAdapter:
-    WintunCloseAdapter(g_tun_adpter);
-//cleanupQuit:
-//    SetConsoleCtrlHandler(CtrlHandler, FALSE);
-//    CloseHandle(QuitEvent);
-//cleanupWintun:
-//    FreeLibrary(g_tun_adpter);
+    
+    if (g_tun_adpter) {
+        WintunCloseAdapter(g_tun_adpter);
+        g_tun_adpter = NULL;
+    }
 }
 
 static HMODULE
@@ -720,8 +809,8 @@ BOOL enable_interface_forwarding(const WCHAR* adapter_name) {
                 return FALSE;
             }
 
-            printf("[+] Per-interface forwarding enabled for '%ls' (LUID: %016llX%016llX)\n",
-                adapter_name, row->InterfaceLuid.Info.NetLuidIndex, row->InterfaceLuid.Info.NetLuidIndex);
+            printf("[+] Per-interface forwarding enabled for '%ls' (LUID: %016llX)\n",
+                adapter_name, row->InterfaceLuid.Value);
             found = TRUE;
             break;
         }

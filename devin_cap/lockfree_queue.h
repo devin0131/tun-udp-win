@@ -45,6 +45,9 @@ private:
     void release_node(LockFreeNode<T>* node) {
         if (!node) return;
 
+        // 清理节点数据
+        node->data.reset();
+
         std::lock_guard<std::mutex> lock(pool_mutex);
         if (pool_size.load(std::memory_order_relaxed) < MAX_POOL_SIZE) {
             node_pool.push(node);
@@ -53,6 +56,18 @@ private:
         else {
             delete node;
         }
+    }
+    
+public:
+    // 获取当前池大小
+    size_t get_pool_size() const {
+        return pool_size.load(std::memory_order_relaxed);
+    }
+    
+    // 获取池中节点数量
+    size_t get_node_count() const {
+        std::lock_guard<std::mutex> lock(pool_mutex);
+        return node_pool.size();
     }
 
 public:
@@ -67,6 +82,8 @@ public:
         LockFreeNode<T>* curr = head.load(std::memory_order_relaxed);
         while (curr) {
             LockFreeNode<T>* next = curr->next.load(std::memory_order_relaxed);
+            // 清理节点数据
+            curr->data.reset();
             delete curr;
             curr = next;
         }
@@ -74,7 +91,9 @@ public:
         // 清理对象池
         std::lock_guard<std::mutex> lock(pool_mutex);
         while (!node_pool.empty()) {
-            delete node_pool.top();
+            LockFreeNode<T>* node = node_pool.top();
+            node->data.reset();
+            delete node;
             node_pool.pop();
         }
     }
@@ -140,6 +159,60 @@ public:
     void enqueue_shared(std::shared_ptr<T>&& item) {
         LockFreeNode<T>* node = acquire_node();
         node->data = std::move(item);
+
+        std::atomic_thread_fence(std::memory_order_release);
+
+        LockFreeNode<T>* prev = tail.load(std::memory_order_relaxed);
+        while (true) {
+            LockFreeNode<T>* next = prev->next.load(std::memory_order_acquire);
+            if (prev == tail.load(std::memory_order_relaxed)) {
+                if (next == nullptr) {
+                    if (prev->next.compare_exchange_weak(next, node, std::memory_order_acq_rel)) {
+                        tail.compare_exchange_weak(prev, node, std::memory_order_acq_rel);
+                        return;
+                    }
+                }
+                else {
+                    tail.compare_exchange_weak(prev, next, std::memory_order_acq_rel);
+                }
+            }
+            else {
+                prev = tail.load(std::memory_order_relaxed);
+            }
+        }
+    }
+    
+    // 零拷贝入队 - 使用已有的shared_ptr（左值引用版本）
+    void enqueue_shared(const std::shared_ptr<T>& item) {
+        LockFreeNode<T>* node = acquire_node();
+        node->data = item;
+
+        std::atomic_thread_fence(std::memory_order_release);
+
+        LockFreeNode<T>* prev = tail.load(std::memory_order_relaxed);
+        while (true) {
+            LockFreeNode<T>* next = prev->next.load(std::memory_order_acquire);
+            if (prev == tail.load(std::memory_order_relaxed)) {
+                if (next == nullptr) {
+                    if (prev->next.compare_exchange_weak(next, node, std::memory_order_acq_rel)) {
+                        tail.compare_exchange_weak(prev, node, std::memory_order_acq_rel);
+                        return;
+                    }
+                }
+                else {
+                    tail.compare_exchange_weak(prev, next, std::memory_order_acq_rel);
+                }
+            }
+            else {
+                prev = tail.load(std::memory_order_relaxed);
+            }
+        }
+    }
+    
+    // 高效入队 - 直接使用T对象构建shared_ptr
+    void enqueue_direct(T&& item) {
+        LockFreeNode<T>* node = acquire_node();
+        node->data = std::make_shared<T>(std::move(item));
 
         std::atomic_thread_fence(std::memory_order_release);
 
