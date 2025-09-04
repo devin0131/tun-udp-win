@@ -129,6 +129,9 @@
   <ItemGroup>
     <ClCompile Include="devin_cap.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="lockfree_queue.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

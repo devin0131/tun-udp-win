@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\devin\source\repos\tun-udp-win\build\CMakeFiles\1e0cea51f125746f38df7bcf88a1b6be\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{F474D542-EE3E-33A3-A176-2B3385FB5894}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

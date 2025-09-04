@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/devin/source/repos/tun-udp-win/build/cmake_install.cmake",
+		"C:/Users/devin/source/repos/tun-udp-win/build/devin_cap/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
