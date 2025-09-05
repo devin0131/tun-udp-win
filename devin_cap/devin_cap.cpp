@@ -401,6 +401,9 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header,
 
     // 使用无锁队列优化，将数据包放入队列中，由专门的线程处理发送
     if (g_packet_queue) {
+      // 输出捕获时间戳
+      std::cout << "[CAPTURE] Timestamp: " << getCurrentTimestamp() << std::endl;
+      
       // 使用零拷贝方法创建PacketData对象并入队
       auto packet_data =
           PacketData::create_shared((const uint8_t *)ip_packet, ip_packet_len);
@@ -528,6 +531,9 @@ unsigned __stdcall udp_thread_function(void *param) {
 
     // 使用无锁队列优化，将收到的数据包放入队列中，由专门的线程处理发送
     if (g_udp_packet_queue) {
+      // 输出UDP接收时间戳
+      std::cout << "[UDP RECEIVE] Timestamp: " << getCurrentTimestamp() << std::endl;
+      
       // 使用零拷贝方法创建PacketData对象并入队
       auto packet_data = PacketData::create_shared((const uint8_t *)recv_buffer,
                                                    bytes_received);

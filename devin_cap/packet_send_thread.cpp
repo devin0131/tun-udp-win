@@ -4,6 +4,9 @@
 #include <ws2tcpip.h>
 #include "lockfree_queue.h"
 #include "packet_data.h"
+#include <chrono>
+#include <iostream>
+#include <iomanip>
 
 // 前向声明
 extern LockFreeQueue<PacketData>* g_packet_queue;
@@ -21,6 +24,9 @@ unsigned __stdcall capture_forward_thread_function(void* param) {
         // 处理从网络捕获并需要转发的UDP数据包
         auto packet_ptr = g_packet_queue ? g_packet_queue->dequeue() : nullptr;
         if (packet_ptr) {
+            // 输出处理时间戳
+            std::cout << "[PROCESS CAPTURE] Timestamp: " << getHighResTimestamp() << std::endl;
+            
             // 发送数据包
             SOCKET udp_socket = g_forward_socket;
             sockaddr_in dest_addr;
@@ -57,6 +63,9 @@ unsigned __stdcall udp_inject_thread_function(void* param) {
         // 处理从UDP接收并需要注入网络的数据包
         auto packet_ptr = g_udp_packet_queue ? g_udp_packet_queue->dequeue() : nullptr;
         if (packet_ptr) {
+            // 输出处理时间戳
+            std::cout << "[PROCESS UDP] Timestamp: " << getHighResTimestamp() << std::endl;
+            
             // --- 将收到的原始数据通过 Npcap/Wintun 发送回网络 ---
             if (g_capture_handle && packet_ptr->data.size() > 0) {
                 // 直接发送收到的原始字节流，假设它是一个完整的以太网帧

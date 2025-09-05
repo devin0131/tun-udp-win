@@ -5,6 +5,30 @@
 #include <memory>
 #include <stack>
 #include <mutex>
+#include <chrono>
+#include <iostream>
+#include <iomanip>
+
+// 获取高精度时间戳的辅助函数
+inline std::string getHighResTimestamp() {
+    auto now = std::chrono::high_resolution_clock::now();
+    auto duration = now.time_since_epoch();
+    auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+    auto seconds = microseconds / 1000000;
+    auto usecs = microseconds % 1000000;
+    
+    // 获取当前时间的时分秒
+    std::time_t t = std::time(nullptr);
+    std::tm tm;
+    localtime_s(&tm, &t);
+    
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(2) << tm.tm_hour << ":"
+        << std::setfill('0') << std::setw(2) << tm.tm_min << ":"
+        << std::setfill('0') << std::setw(2) << tm.tm_sec << "."
+        << std::setfill('0') << std::setw(6) << usecs;
+    return oss.str();
+}
 
 // 优化的无锁队列节点结构
 template <typename T>
@@ -157,6 +181,9 @@ public:
 
     // 零拷贝入队 - 直接使用已有的shared_ptr
     void enqueue_shared(std::shared_ptr<T>&& item) {
+        // 输出入队时间戳
+        std::cout << "[ENQUEUE] Timestamp: " << getHighResTimestamp() << std::endl;
+        
         LockFreeNode<T>* node = acquire_node();
         node->data = std::move(item);
 
@@ -247,6 +274,9 @@ public:
 
             // 尝试移动 head
             if (head.compare_exchange_weak(old_head, first, std::memory_order_acq_rel)) {
+                // 输出出队时间戳
+                std::cout << "[DEQUEUE] Timestamp: " << getHighResTimestamp() << std::endl;
+                
                 // 成功出队
                 std::shared_ptr<T> item = std::move(first->data);
                 release_node(old_head); // 释放旧 head（dummy 或前节点）
