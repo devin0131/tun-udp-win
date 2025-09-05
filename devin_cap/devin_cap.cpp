@@ -124,9 +124,12 @@ int main() {
   pcap_t *handle = nullptr;
   char error_buffer[PCAP_ERRBUF_SIZE];
   struct bpf_program filter_code;
+  //const char *filter_expression =
+  //    "ip dst host " TARGET_IP
+  //    " and udp and (dst port 10999 or dst port 10998)";
   const char *filter_expression =
       "ip dst host " TARGET_IP
-      " and udp and (dst port 10999 or dst port 10998)";
+      " and (dst port 10999 or dst port 10998)";  
   int result;
 
   printf("=== Npcap Capture & Forward Demo ===\n");
@@ -373,7 +376,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header,
   UNREFERENCED_PARAMETER(user);
 
   // 打印基础信息
-  // print_packet_info(pkt_header, pkt_data);
+   print_packet_info(pkt_header, pkt_data);
   // parse_udp_packet(pkt_data, pkt_header->caplen);
 
   // --- 新增功能 1: 将捕获到的原始数据包通过UDP发送出去 ---
