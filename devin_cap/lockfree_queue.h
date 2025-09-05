@@ -8,6 +8,7 @@
 #include <chrono>
 #include <iostream>
 #include <iomanip>
+#include <sstream>
 
 // 获取高精度时间戳的辅助函数
 inline std::string getHighResTimestamp() {
