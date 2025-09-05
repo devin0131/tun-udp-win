@@ -22,11 +22,9 @@ unsigned __stdcall capture_forward_thread_function(void* param) {
 
     while (g_running) {
         // 处理从网络捕获并需要转发的UDP数据包
-        auto packet_ptr = g_packet_queue ? g_packet_queue->dequeue() : nullptr;
-        if (packet_ptr) {
-            // 输出处理时间戳
-            std::cout << "[PROCESS CAPTURE] Timestamp: " << getHighResTimestamp() << std::endl;
-            
+        // 使用阻塞式出队，避免忙等待和Sleep
+        auto packet_ptr = g_packet_queue ? g_packet_queue->dequeue_blocking() : nullptr;
+        if (packet_ptr && g_running) {  // 检查g_running以确保在退出时不会处理数据包
             // 发送数据包
             SOCKET udp_socket = g_forward_socket;
             sockaddr_in dest_addr;
@@ -44,10 +42,6 @@ unsigned __stdcall capture_forward_thread_function(void* param) {
             // 将PacketData对象返回到内存池
             PacketDataPool::release(std::move(packet_ptr));
         }
-        else {
-            // 队列为空，短暂休眠以避免忙等待
-            Sleep(0);
-        }
     }
 
     printf("Capture Forward Thread: Exiting.\n");
@@ -61,11 +55,9 @@ unsigned __stdcall udp_inject_thread_function(void* param) {
 
     while (g_running) {
         // 处理从UDP接收并需要注入网络的数据包
-        auto packet_ptr = g_udp_packet_queue ? g_udp_packet_queue->dequeue() : nullptr;
-        if (packet_ptr) {
-            // 输出处理时间戳
-            std::cout << "[PROCESS UDP] Timestamp: " << getHighResTimestamp() << std::endl;
-            
+        // 使用阻塞式出队，避免忙等待和Sleep
+        auto packet_ptr = g_udp_packet_queue ? g_udp_packet_queue->dequeue_blocking() : nullptr;
+        if (packet_ptr && g_running) {  // 检查g_running以确保在退出时不会处理数据包
             // --- 将收到的原始数据通过 Npcap/Wintun 发送回网络 ---
             if (g_capture_handle && packet_ptr->data.size() > 0) {
                 // 直接发送收到的原始字节流，假设它是一个完整的以太网帧
@@ -74,10 +66,6 @@ unsigned __stdcall udp_inject_thread_function(void* param) {
             
             // 将PacketData对象返回到内存池
             PacketDataPool::release(std::move(packet_ptr));
-        }
-        else {
-            // 队列为空，短暂休眠以避免忙等待
-            Sleep(0);
         }
     }
 

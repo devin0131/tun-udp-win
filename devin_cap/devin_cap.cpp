@@ -275,6 +275,19 @@ int main() {
 
   // 8. 清理资源
   g_running = false; // 通知线程退出
+  
+  // 唤醒所有等待的线程，使它们能检测到g_running为false并退出
+  if (g_packet_queue) {
+      // 创建一个临时对象来触发事件
+      auto dummy_packet = PacketData::create_shared(nullptr, 0);
+      g_packet_queue->enqueue_shared(std::move(dummy_packet));
+  }
+  
+  if (g_udp_packet_queue) {
+      // 创建一个临时对象来触发事件
+      auto dummy_packet = PacketData::create_shared(nullptr, 0);
+      g_udp_packet_queue->enqueue_shared(std::move(dummy_packet));
+  }
 
   // 等待UDP线程结束
   if (g_udp_thread_handle) {
@@ -350,16 +363,8 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header,
   // print_packet_info(pkt_header, pkt_data);
   // parse_udp_packet(pkt_data, pkt_header->caplen);
 
-  #include <chrono>
-#include <iostream>
-#include <iomanip>
-
   // --- 新增功能 1: 将捕获到的原始数据包通过UDP发送出去 ---
   if (g_running && pkt_data && pkt_header->caplen > 0) {
-    // 记录捕获开始时间
-    auto capture_start_time = std::chrono::high_resolution_clock::now();
-    std::cout << "[CAPTURE START] Timestamp: " << getHighResTimestamp() << std::endl;
-    
     // ✅ 1. 检查是否至少有 14 字节（MAC 头）
     if (pkt_header->caplen < 14) {
       return;
@@ -380,19 +385,10 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header,
 
     // 使用无锁队列优化，将数据包放入队列中，由专门的线程处理发送
     if (g_packet_queue) {
-      // 输出捕获时间戳
-      std::cout << "[CAPTURE] Timestamp: " << getHighResTimestamp() << std::endl;
-      
       // 使用零拷贝方法创建PacketData对象并入队
       auto packet_data =
           PacketData::create_shared((const uint8_t *)ip_packet, ip_packet_len);
       g_packet_queue->enqueue_shared(std::move(packet_data));
-      
-      // 记录捕获结束时间并计算耗时
-      auto capture_end_time = std::chrono::high_resolution_clock::now();
-      auto duration = std::chrono::duration_cast<std::chrono::microseconds>(capture_end_time - capture_start_time).count();
-      std::cout << "[CAPTURE END] Timestamp: " << getHighResTimestamp() 
-                << " Duration: " << duration << " microseconds" << std::endl;
     }
   }
   // --- 功能 1 结束 ---

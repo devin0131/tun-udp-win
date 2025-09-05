@@ -5,32 +5,7 @@
 #include <memory>
 #include <stack>
 #include <mutex>
-#include <chrono>
-#include <iostream>
-#include <iomanip>
-#include <sstream>
-
-// 获取高精度时间戳的辅助函数
-inline std::string getHighResTimestamp() {
-    auto now = std::chrono::high_resolution_clock::now();
-    auto duration = now.time_since_epoch();
-    auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
-    auto seconds = microseconds / 1000000;
-    auto usecs = microseconds % 1000000;
-    
-    // 获取当前时间的时分秒
-    std::time_t t = std::time(nullptr);
-    std::tm tm;
-    localtime_s(&tm, &t);
-    
-    std::ostringstream oss;
-    oss << std::setfill('0') << std::setw(2) << tm.tm_hour << ":"
-        << std::setfill('0') << std::setw(2) << tm.tm_min << ":"
-        << std::setfill('0') << std::setw(2) << tm.tm_sec << "."
-        << std::setfill('0') << std::setw(6) << usecs;
-        
-    return oss.str();
-}
+#include <windows.h>
 
 // 优化的无锁队列节点结构
 template <typename T>
@@ -53,6 +28,9 @@ private:
     mutable std::stack<LockFreeNode<T>*> node_pool;
     mutable std::atomic<size_t> pool_size;
     static constexpr size_t MAX_POOL_SIZE = 1000;
+
+    // 事件对象，用于通知队列中有新元素
+    HANDLE queue_event;
 
     // 获取节点（从池或 new）
     LockFreeNode<T>* acquire_node() {
@@ -101,6 +79,9 @@ public:
         LockFreeNode<T>* dummy = new LockFreeNode<T>();  // dummy node
         head.store(dummy, std::memory_order_relaxed);
         tail.store(dummy, std::memory_order_relaxed);
+        
+        // 创建手动重置事件，初始状态为无信号
+        queue_event = CreateEvent(NULL, TRUE, FALSE, NULL);
     }
 
     ~LockFreeQueue() {
@@ -122,6 +103,11 @@ public:
             delete node;
             node_pool.pop();
         }
+        
+        // 关闭事件对象
+        if (queue_event != NULL && queue_event != INVALID_HANDLE_VALUE) {
+            CloseHandle(queue_event);
+        }
     }
 
     // 入队 - 使用 CAS
@@ -140,6 +126,8 @@ public:
                     if (prev->next.compare_exchange_weak(next, node, std::memory_order_acq_rel)) {
                         // 成功，更新 tail
                         tail.compare_exchange_weak(prev, node, std::memory_order_acq_rel);
+                        // 设置事件以通知等待的线程
+                        SetEvent(queue_event);
                         return;
                     }
                 }
@@ -168,6 +156,8 @@ public:
                 if (next == nullptr) {
                     if (prev->next.compare_exchange_weak(next, node, std::memory_order_acq_rel)) {
                         tail.compare_exchange_weak(prev, node, std::memory_order_acq_rel);
+                        // 设置事件以通知等待的线程
+                        SetEvent(queue_event);
                         return;
                     }
                 }
@@ -183,10 +173,6 @@ public:
 
     // 零拷贝入队 - 直接使用已有的shared_ptr
     void enqueue_shared(std::shared_ptr<T>&& item) {
-        // 记录开始时间
-        auto start_time = std::chrono::high_resolution_clock::now();
-        std::cout << "[ENQUEUE START] Timestamp: " << getHighResTimestamp() << std::endl;
-        
         LockFreeNode<T>* node = acquire_node();
         node->data = std::move(item);
 
@@ -199,12 +185,8 @@ public:
                 if (next == nullptr) {
                     if (prev->next.compare_exchange_weak(next, node, std::memory_order_acq_rel)) {
                         tail.compare_exchange_weak(prev, node, std::memory_order_acq_rel);
-                        
-                        // 记录结束时间并计算耗时
-                        auto end_time = std::chrono::high_resolution_clock::now();
-                        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
-                        std::cout << "[ENQUEUE END] Timestamp: " << getHighResTimestamp() 
-                                  << " Duration: " << duration << " microseconds" << std::endl;
+                        // 设置事件以通知等待的线程
+                        SetEvent(queue_event);
                         return;
                     }
                 }
@@ -232,6 +214,8 @@ public:
                 if (next == nullptr) {
                     if (prev->next.compare_exchange_weak(next, node, std::memory_order_acq_rel)) {
                         tail.compare_exchange_weak(prev, node, std::memory_order_acq_rel);
+                        // 设置事件以通知等待的线程
+                        SetEvent(queue_event);
                         return;
                     }
                 }
@@ -259,6 +243,8 @@ public:
                 if (next == nullptr) {
                     if (prev->next.compare_exchange_weak(next, node, std::memory_order_acq_rel)) {
                         tail.compare_exchange_weak(prev, node, std::memory_order_acq_rel);
+                        // 设置事件以通知等待的线程
+                        SetEvent(queue_event);
                         return;
                     }
                 }
@@ -274,35 +260,61 @@ public:
 
     // 出队 - 直接返回shared_ptr以避免栈上分配
     std::shared_ptr<T> dequeue() {
-        // 记录开始时间
-        auto start_time = std::chrono::high_resolution_clock::now();
-        
         LockFreeNode<T>* old_head = head.load(std::memory_order_relaxed);
         while (true) {
             LockFreeNode<T>* first = old_head->next.load(std::memory_order_acquire);
             if (first == nullptr) {
-                // 输出出队时间戳和耗时 (队列为空)
                 return nullptr; // 队列为空
             }
 
             // 尝试移动 head
             if (head.compare_exchange_weak(old_head, first, std::memory_order_acq_rel)) {
-                // 输出出队时间戳
-                std::cout << "[DEQUEUE] Timestamp: " << getHighResTimestamp() << std::endl;
-                
                 // 成功出队
                 std::shared_ptr<T> item = std::move(first->data);
                 release_node(old_head); // 释放旧 head（dummy 或前节点）
                 
-                // 记录结束时间并计算耗时
-                auto end_time = std::chrono::high_resolution_clock::now();
-                auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
-                std::cout << "[DEQUEUE END] Duration: " << duration << " microseconds" << std::endl;
+                // 检查队列是否为空，如果为空则重置事件
+                if (first->next.load(std::memory_order_acquire) == nullptr) {
+                    ResetEvent(queue_event);
+                }
                 
                 return item;
             }
             // CAS 失败，重试
         }
+    }
+    
+    // 带超时的出队函数
+    std::shared_ptr<T> dequeue_with_timeout(DWORD timeout_ms) {
+        // 首先尝试无等待出队
+        auto item = dequeue();
+        if (item) {
+            return item;
+        }
+        
+        // 如果队列为空，等待事件或超时
+        if (WaitForSingleObject(queue_event, timeout_ms) == WAIT_OBJECT_0) {
+            // 事件被触发，再次尝试出队
+            return dequeue();
+        }
+        
+        // 超时或出错
+        return nullptr;
+    }
+    
+    // 阻塞式出队函数
+    std::shared_ptr<T> dequeue_blocking() {
+        // 首先尝试无等待出队
+        auto item = dequeue();
+        if (item) {
+            return item;
+        }
+        
+        // 如果队列为空，等待事件
+        WaitForSingleObject(queue_event, INFINITE);
+        
+        // 事件被触发，再次尝试出队
+        return dequeue();
     }
 
     // 兼容的出队方法 - 保留原来的接口以保证向后兼容

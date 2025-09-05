@@ -150,37 +150,17 @@ inline std::string getHighResTimestamp() {
 
 // 零拷贝工厂方法 - 从现有数据创建shared_ptr（使用内存池）
 std::shared_ptr<PacketData> PacketData::create_shared(const uint8_t* packet_data, int packet_len) {
-    // 记录开始时间
-    auto start_time = std::chrono::high_resolution_clock::now();
-    std::cout << "[CREATE_SHARED START] Timestamp: " << getHighResTimestamp() << std::endl;
-    
     auto packet = PacketDataPool::acquire();
-    packet->data.assign(packet_data, packet_len);
-    
-    // 记录结束时间并计算耗时
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
-    std::cout << "[CREATE_SHARED END] Timestamp: " << getHighResTimestamp() 
-              << " Duration: " << duration << " microseconds" << std::endl;
-    
+    if (packet_data && packet_len > 0) {
+        packet->data.assign(packet_data, packet_len);
+    }
     return packet;
 }
 
 // 零拷贝工厂方法 - 从已有的PacketBuffer创建shared_ptr（使用内存池）
 std::shared_ptr<PacketData> PacketData::create_shared(const PacketBuffer& packet_data) {
-    // 记录开始时间
-    auto start_time = std::chrono::high_resolution_clock::now();
-    std::cout << "[CREATE_SHARED START] Timestamp: " << getHighResTimestamp() << std::endl;
-    
     auto packet = PacketDataPool::acquire();
     packet->data = packet_data;
-    
-    // 记录结束时间并计算耗时
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
-    std::cout << "[CREATE_SHARED END] Timestamp: " << getHighResTimestamp() 
-              << " Duration: " << duration << " microseconds" << std::endl;
-    
     return packet;
 }
 
