@@ -12,7 +12,6 @@
 
 // 获取高精度时间戳的辅助函数
 inline std::string getHighResTimestamp() {
-    auto start = std::chrono::high_resolution_clock::now();
     auto now = std::chrono::high_resolution_clock::now();
     auto duration = now.time_since_epoch();
     auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
@@ -30,9 +29,6 @@ inline std::string getHighResTimestamp() {
         << std::setfill('0') << std::setw(2) << tm.tm_sec << "."
         << std::setfill('0') << std::setw(6) << usecs;
         
-    auto end = std::chrono::high_resolution_clock::now();
-    auto total_duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    oss << " (Duration: " << total_duration << " microseconds)";
     return oss.str();
 }
 
@@ -278,10 +274,18 @@ public:
 
     // 出队 - 直接返回shared_ptr以避免栈上分配
     std::shared_ptr<T> dequeue() {
+        // 记录开始时间
+        auto start_time = std::chrono::high_resolution_clock::now();
+        
         LockFreeNode<T>* old_head = head.load(std::memory_order_relaxed);
         while (true) {
             LockFreeNode<T>* first = old_head->next.load(std::memory_order_acquire);
             if (first == nullptr) {
+                // 输出出队时间戳和耗时 (队列为空)
+                auto end_time = std::chrono::high_resolution_clock::now();
+                auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+                std::cout << "[DEQUEUE] Timestamp: " << getHighResTimestamp() 
+                          << " (Queue Empty, Duration: " << duration << " microseconds)" << std::endl;
                 return nullptr; // 队列为空
             }
 
@@ -293,6 +297,12 @@ public:
                 // 成功出队
                 std::shared_ptr<T> item = std::move(first->data);
                 release_node(old_head); // 释放旧 head（dummy 或前节点）
+                
+                // 记录结束时间并计算耗时
+                auto end_time = std::chrono::high_resolution_clock::now();
+                auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+                std::cout << "[DEQUEUE END] Duration: " << duration << " microseconds" << std::endl;
+                
                 return item;
             }
             // CAS 失败，重试
