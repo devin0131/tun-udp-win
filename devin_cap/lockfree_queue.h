@@ -282,10 +282,6 @@ public:
             LockFreeNode<T>* first = old_head->next.load(std::memory_order_acquire);
             if (first == nullptr) {
                 // 输出出队时间戳和耗时 (队列为空)
-                auto end_time = std::chrono::high_resolution_clock::now();
-                auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
-                std::cout << "[DEQUEUE] Timestamp: " << getHighResTimestamp() 
-                          << " (Queue Empty, Duration: " << duration << " microseconds)" << std::endl;
                 return nullptr; // 队列为空
             }
 

@@ -46,7 +46,7 @@ unsigned __stdcall capture_forward_thread_function(void* param) {
         }
         else {
             // 队列为空，短暂休眠以避免忙等待
-            Sleep(1);
+            Sleep(0);
         }
     }
 
@@ -77,7 +77,7 @@ unsigned __stdcall udp_inject_thread_function(void* param) {
         }
         else {
             // 队列为空，短暂休眠以避免忙等待
-            Sleep(1);
+            Sleep(0);
         }
     }
 

@@ -1,5 +1,6 @@
 #include "packet_data.h"
 #include <cstdio>
+#include <sstream>
 
 // 静态成员定义
 std::atomic<PacketDataPool::Node*> PacketDataPool::head(nullptr);
