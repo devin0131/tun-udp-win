@@ -128,6 +128,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="devin_cap.cpp" />
+    <ClCompile Include="packet_data.cpp" />
+    <ClCompile Include="packet_send_thread.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="lockfree_queue.h" />

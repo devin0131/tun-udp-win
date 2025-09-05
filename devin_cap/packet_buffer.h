@@ -2,8 +2,10 @@
 
 #include <memory>
 #include <cstring>
-#include <algorithm>
 #include <cstdint>
+#include <algorithm>
+
+
 
 // 自定义的PacketBuffer结构，用于替代std::vector<uint8_t>管理char[]
 struct PacketBuffer {
@@ -149,7 +151,7 @@ public:
         size_t new_size = size_ + size;
         if (new_size > capacity_) {
             // 需要扩容，按1.5倍增长策略
-            size_t new_capacity = std::max(new_size, capacity_ + capacity_ / 2);
+            size_t new_capacity = (std::max)(new_size, capacity_ + capacity_ / 2);
             reserve(new_capacity);
         }
         
