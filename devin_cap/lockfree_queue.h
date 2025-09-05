@@ -236,24 +236,34 @@ public:
         }
     }
 
-    // 出队
-    bool dequeue(T& item) {
+    // 出队 - 直接返回shared_ptr以避免栈上分配
+    std::shared_ptr<T> dequeue() {
         LockFreeNode<T>* old_head = head.load(std::memory_order_relaxed);
         while (true) {
             LockFreeNode<T>* first = old_head->next.load(std::memory_order_acquire);
             if (first == nullptr) {
-                return false; // 队列为空
+                return nullptr; // 队列为空
             }
 
             // 尝试移动 head
             if (head.compare_exchange_weak(old_head, first, std::memory_order_acq_rel)) {
                 // 成功出队
-                item = std::move(*(first->data));
+                std::shared_ptr<T> item = std::move(first->data);
                 release_node(old_head); // 释放旧 head（dummy 或前节点）
-                return true;
+                return item;
             }
             // CAS 失败，重试
         }
+    }
+
+    // 兼容的出队方法 - 保留原来的接口以保证向后兼容
+    bool dequeue(T& item) {
+        auto ptr = dequeue();
+        if (ptr) {
+            item = std::move(*ptr);
+            return true;
+        }
+        return false;
     }
 
     bool empty() const {

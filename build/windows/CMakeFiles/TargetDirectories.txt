@@ -1,0 +1,5 @@
+/root/tun-udp-win/build/windows/CMakeFiles/edit_cache.dir
+/root/tun-udp-win/build/windows/CMakeFiles/rebuild_cache.dir
+/root/tun-udp-win/build/windows/devin_cap/CMakeFiles/devin_cap.dir
+/root/tun-udp-win/build/windows/devin_cap/CMakeFiles/edit_cache.dir
+/root/tun-udp-win/build/windows/devin_cap/CMakeFiles/rebuild_cache.dir

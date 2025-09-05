@@ -27,6 +27,7 @@ endif()
 # 添加源文件
 set(SOURCES
     devin_cap.cpp
+    packet_data.cpp
 )
 
 # 添加头文件目录
