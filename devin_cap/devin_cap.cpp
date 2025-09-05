@@ -379,8 +379,16 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header,
    print_packet_info(pkt_header, pkt_data);
   // parse_udp_packet(pkt_data, pkt_header->caplen);
 
+  #include <chrono>
+#include <iostream>
+#include <iomanip>
+
   // --- 新增功能 1: 将捕获到的原始数据包通过UDP发送出去 ---
   if (g_running && pkt_data && pkt_header->caplen > 0) {
+    // 记录捕获开始时间
+    auto capture_start_time = std::chrono::high_resolution_clock::now();
+    std::cout << "[CAPTURE START] Timestamp: " << getCurrentTimestamp() << std::endl;
+    
     // ✅ 1. 检查是否至少有 14 字节（MAC 头）
     if (pkt_header->caplen < 14) {
       return;
@@ -408,6 +416,12 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header,
       auto packet_data =
           PacketData::create_shared((const uint8_t *)ip_packet, ip_packet_len);
       g_packet_queue->enqueue_shared(std::move(packet_data));
+      
+      // 记录捕获结束时间并计算耗时
+      auto capture_end_time = std::chrono::high_resolution_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::microseconds>(capture_end_time - capture_start_time).count();
+      std::cout << "[CAPTURE END] Timestamp: " << getCurrentTimestamp() 
+                << " Duration: " << duration << " microseconds" << std::endl;
     }
   }
   // --- 功能 1 结束 ---
