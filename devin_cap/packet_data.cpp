@@ -117,17 +117,64 @@ PacketData& PacketData::operator=(PacketData&& other) noexcept {
     return *this;
 }
 
+#include <chrono>
+#include <iostream>
+#include <iomanip>
+
+// 获取高精度时间戳的辅助函数
+inline std::string getHighResTimestamp() {
+    auto now = std::chrono::high_resolution_clock::now();
+    auto duration = now.time_since_epoch();
+    auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+    auto seconds = microseconds / 1000000;
+    auto usecs = microseconds % 1000000;
+    
+    // 获取当前时间的时分秒
+    std::time_t t = std::time(nullptr);
+    std::tm tm;
+    localtime_s(&tm, &t);
+    
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(2) << tm.tm_hour << ":"
+        << std::setfill('0') << std::setw(2) << tm.tm_min << ":"
+        << std::setfill('0') << std::setw(2) << tm.tm_sec << "."
+        << std::setfill('0') << std::setw(6) << usecs;
+    return oss.str();
+}
+
 // 零拷贝工厂方法 - 从现有数据创建shared_ptr（使用内存池）
 std::shared_ptr<PacketData> PacketData::create_shared(const uint8_t* packet_data, int packet_len) {
+    // 记录开始时间
+    auto start_time = std::chrono::high_resolution_clock::now();
+    std::cout << "[CREATE_SHARED START] Timestamp: " << getHighResTimestamp() << std::endl;
+    
     auto packet = PacketDataPool::acquire();
     packet->data.assign(packet_data, packet_len);
+    
+    // 记录结束时间并计算耗时
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+    std::cout << "[CREATE_SHARED END] Timestamp: " << getHighResTimestamp() 
+              << " Duration: " << duration << " microseconds" << std::endl;
+    
     return packet;
 }
 
 // 零拷贝工厂方法 - 从已有的PacketBuffer创建shared_ptr（使用内存池）
 std::shared_ptr<PacketData> PacketData::create_shared(const PacketBuffer& packet_data) {
+    // 记录开始时间
+    auto start_time = std::chrono::high_resolution_clock::now();
+    std::cout << "[CREATE_SHARED START] Timestamp: " << getHighResTimestamp() << std::endl;
+    
     auto packet = PacketDataPool::acquire();
     packet->data = packet_data;
+    
+    // 记录结束时间并计算耗时
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+    std::cout << "[CREATE_SHARED END] Timestamp: " << getHighResTimestamp() 
+              << " Duration: " << duration << " microseconds" << std::endl;
+    
     return packet;
 }
 

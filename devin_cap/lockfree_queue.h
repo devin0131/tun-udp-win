@@ -182,8 +182,9 @@ public:
 
     // 零拷贝入队 - 直接使用已有的shared_ptr
     void enqueue_shared(std::shared_ptr<T>&& item) {
-        // 输出入队时间戳
-        std::cout << "[ENQUEUE] Timestamp: " << getHighResTimestamp() << std::endl;
+        // 记录开始时间
+        auto start_time = std::chrono::high_resolution_clock::now();
+        std::cout << "[ENQUEUE START] Timestamp: " << getHighResTimestamp() << std::endl;
         
         LockFreeNode<T>* node = acquire_node();
         node->data = std::move(item);
@@ -197,6 +198,12 @@ public:
                 if (next == nullptr) {
                     if (prev->next.compare_exchange_weak(next, node, std::memory_order_acq_rel)) {
                         tail.compare_exchange_weak(prev, node, std::memory_order_acq_rel);
+                        
+                        // 记录结束时间并计算耗时
+                        auto end_time = std::chrono::high_resolution_clock::now();
+                        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+                        std::cout << "[ENQUEUE END] Timestamp: " << getHighResTimestamp() 
+                                  << " Duration: " << duration << " microseconds" << std::endl;
                         return;
                     }
                 }
