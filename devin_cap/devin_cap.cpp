@@ -86,36 +86,7 @@ static WINTUN_RELEASE_RECEIVE_PACKET_FUNC *WintunReleaseReceivePacket;
 static WINTUN_ALLOCATE_SEND_PACKET_FUNC *WintunAllocateSendPacket;
 static WINTUN_SEND_PACKET_FUNC *WintunSendPacket;
 
-std::string getCurrentTimestamp() {
-  // 获取当前时间点（高精度）
-  const auto now = std::chrono::system_clock::now();
 
-  // 转换为 system_time（用于获取时分秒）
-  auto now_time_t = std::chrono::system_clock::to_time_t(now);
-  auto now_ms = std::chrono::duration_cast<std::chrono::microseconds>(
-      now.time_since_epoch());
-
-  // 提取时、分、秒
-  tm time_info = {};
-#ifdef _WIN32
-  localtime_s(&time_info, &now_time_t); // Windows 安全函数
-#else
-  localtime_r(&time_info, &time_info); // Linux
-#endif
-
-  // 计算毫秒和微秒部分
-  long long us = now_ms.count() % 1000000; // 微秒 (0~999999)
-  int seconds = time_info.tm_sec;
-  int minutes = time_info.tm_min;
-  int hours = time_info.tm_hour;
-
-  // 使用 stringstream 格式化输出
-  std::ostringstream oss;
-  oss << std::setfill('0') << std::setw(2) << hours << ":" << std::setw(2)
-      << minutes << ":" << std::setw(2) << seconds << "." << std::setw(6) << us;
-
-  return oss.str();
-}
 
 int main() {
   WSADATA wsaData;
@@ -376,7 +347,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header,
   UNREFERENCED_PARAMETER(user);
 
   // 打印基础信息
-   print_packet_info(pkt_header, pkt_data);
+  // print_packet_info(pkt_header, pkt_data);
   // parse_udp_packet(pkt_data, pkt_header->caplen);
 
   #include <chrono>
@@ -387,7 +358,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header,
   if (g_running && pkt_data && pkt_header->caplen > 0) {
     // 记录捕获开始时间
     auto capture_start_time = std::chrono::high_resolution_clock::now();
-    std::cout << "[CAPTURE START] Timestamp: " << getCurrentTimestamp() << std::endl;
+    std::cout << "[CAPTURE START] Timestamp: " << getHighResTimestamp() << std::endl;
     
     // ✅ 1. 检查是否至少有 14 字节（MAC 头）
     if (pkt_header->caplen < 14) {
@@ -410,7 +381,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header,
     // 使用无锁队列优化，将数据包放入队列中，由专门的线程处理发送
     if (g_packet_queue) {
       // 输出捕获时间戳
-      std::cout << "[CAPTURE] Timestamp: " << getCurrentTimestamp() << std::endl;
+      std::cout << "[CAPTURE] Timestamp: " << getHighResTimestamp() << std::endl;
       
       // 使用零拷贝方法创建PacketData对象并入队
       auto packet_data =
@@ -420,7 +391,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *pkt_header,
       // 记录捕获结束时间并计算耗时
       auto capture_end_time = std::chrono::high_resolution_clock::now();
       auto duration = std::chrono::duration_cast<std::chrono::microseconds>(capture_end_time - capture_start_time).count();
-      std::cout << "[CAPTURE END] Timestamp: " << getCurrentTimestamp() 
+      std::cout << "[CAPTURE END] Timestamp: " << getHighResTimestamp() 
                 << " Duration: " << duration << " microseconds" << std::endl;
     }
   }
@@ -437,7 +408,7 @@ void print_packet_info(const struct pcap_pkthdr *header, const u_char *packet) {
   if (localtime_s(&time_info, &local_tv_sec) == 0) {
     strftime(timestr, sizeof(timestr), "%H:%M:%S", &time_info);
     printf("[%s] CapPacktime: [%s.%06ld] Len: %d (Captured: %d)\n",
-           getCurrentTimestamp().c_str(), timestr, header->ts.tv_usec,
+           getHighResTimestamp().c_str(), timestr, header->ts.tv_usec,
            header->len, header->caplen);
   } else {
     printf("[Invalid Time] Len: %d (Captured: %d)\n", header->len,

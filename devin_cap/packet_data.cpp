@@ -123,6 +123,7 @@ PacketData& PacketData::operator=(PacketData&& other) noexcept {
 
 // 获取高精度时间戳的辅助函数
 inline std::string getHighResTimestamp() {
+    auto start = std::chrono::high_resolution_clock::now();
     auto now = std::chrono::high_resolution_clock::now();
     auto duration = now.time_since_epoch();
     auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
@@ -139,6 +140,10 @@ inline std::string getHighResTimestamp() {
         << std::setfill('0') << std::setw(2) << tm.tm_min << ":"
         << std::setfill('0') << std::setw(2) << tm.tm_sec << "."
         << std::setfill('0') << std::setw(6) << usecs;
+        
+    auto end = std::chrono::high_resolution_clock::now();
+    auto total_duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    oss << " (Duration: " << total_duration << " microseconds)";
     return oss.str();
 }
 
